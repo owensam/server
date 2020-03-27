@@ -636,4 +636,8 @@ class Wrapper implements \OC\Files\Storage\Storage, ILockingStorage, IWriteStrea
 			return $count;
 		}
 	}
+
+	public function getDirectoryContent($directory): iterable {
+		return $this->getWrapperStorage()->getDirectoryContent($directory);
+	}
 }

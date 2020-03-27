@@ -54,6 +54,7 @@ use OC\Cache\CappedMemoryCache;
 use OC\Files\Filesystem;
 use OC\Files\Storage\Common;
 use OCA\Files_External\Lib\Notify\SMBNotifyHandler;
+use OCP\Constants;
 use OCP\Files\Notify\IChange;
 use OCP\Files\Notify\IRenameChange;
 use OCP\Files\Storage\INotifyStorage;
@@ -96,7 +97,7 @@ class SMB extends Common implements INotifyStorage {
 		if (isset($params['auth'])) {
 			$auth = $params['auth'];
 		} else if (isset($params['user']) && isset($params['password']) && isset($params['share'])) {
-			list($workgroup, $user) = $this->splitUser($params['user']);
+			[$workgroup, $user] = $this->splitUser($params['user']);
 			$auth = new BasicAuth($user, $workgroup, $params['password']);
 		} else {
 			throw new \Exception('Invalid configuration, no credentials provided');
@@ -205,14 +206,15 @@ class SMB extends Common implements INotifyStorage {
 	 * @return \Icewind\SMB\IFileInfo[]
 	 * @throws StorageNotAvailableException
 	 */
-	protected function getFolderContents($path) {
+	protected function getFolderContents($path): iterable {
 		try {
 			$path = $this->buildPath($path);
 			$files = $this->share->dir($path);
 			foreach ($files as $file) {
 				$this->statCache[$path . '/' . $file->getName()] = $file;
 			}
-			return array_filter($files, function (IFileInfo $file) {
+
+			foreach ($files as $file) {
 				try {
 					// the isHidden check is done before checking the config boolean to ensure that the metadata is always fetch
 					// so we trigger the below exceptions where applicable
@@ -220,15 +222,15 @@ class SMB extends Common implements INotifyStorage {
 					if ($hide) {
 						$this->logger->debug('hiding hidden file ' . $file->getName());
 					}
-					return !$hide;
+					if (!$hide) {
+						yield $file;
+					}
 				} catch (ForbiddenException $e) {
 					$this->logger->logException($e, ['level' => ILogger::DEBUG, 'message' => 'Hiding forbidden entry ' . $file->getName()]);
-					return false;
 				} catch (NotFoundException $e) {
 					$this->logger->logException($e, ['level' => ILogger::DEBUG, 'message' => 'Hiding not found entry ' . $file->getName()]);
-					return false;
 				}
-			});
+			}
 		} catch (ConnectException $e) {
 			$this->logger->logException($e, ['message' => 'Error while getting folder content']);
 			throw new StorageNotAvailableException($e->getMessage(), $e->getCode(), $e);
@@ -507,6 +509,46 @@ class SMB extends Common implements INotifyStorage {
 		}
 	}
 
+	public function getMetaData($path) {
+		$fileInfo = $this->getFileInfo($path);
+		if (!$fileInfo) {
+			return null;
+		}
+
+		return $this->getMetaDataFromFileInfo($fileInfo);
+	}
+
+	private function getMetaDataFromFileInfo(IFileInfo $fileInfo) {
+		$permissions = Constants::PERMISSION_READ + Constants::PERMISSION_SHARE;
+
+		if (!$fileInfo->isReadOnly()) {
+			$permissions += Constants::PERMISSION_DELETE;
+			$permissions += Constants::PERMISSION_UPDATE;
+			if ($fileInfo->isDirectory()) {
+				$permissions += Constants::PERMISSION_CREATE;
+			}
+		}
+
+		$data = [];
+		if ($fileInfo->isDirectory()) {
+			$data['mimetype'] = 'httpd/unix-directory';
+		} else {
+			$data['mimetype'] = \OC::$server->getMimeTypeDetector()->detectPath($fileInfo->getPath());
+		}
+		$data['mtime'] = $fileInfo->getMTime();
+		if ($fileInfo->isDirectory()) {
+			$data['size'] = -1; //unknown
+		} else {
+			$data['size'] = $fileInfo->getSize();
+		}
+		$data['etag'] = $this->getETag($fileInfo->getPath());
+		$data['storage_mtime'] = $data['mtime'];
+		$data['permissions'] = $permissions;
+		$data['name'] = $fileInfo->getName();
+
+		return $data;
+	}
+
 	public function opendir($path) {
 		try {
 			$files = $this->getFolderContents($path);
@@ -518,8 +560,15 @@ class SMB extends Common implements INotifyStorage {
 		$names = array_map(function ($info) {
 			/** @var \Icewind\SMB\IFileInfo $info */
 			return $info->getName();
-		}, $files);
+		}, iterator_to_array($files));
 		return IteratorDirectory::wrap($names);
+	}
+
+	public function getDirectoryContent($directory): iterable {
+		$files = $this->getFolderContents($directory);
+		foreach ($files as $file) {
+			yield $this->getMetaDataFromFileInfo($file);
+		}
 	}
 
 	public function filetype($path) {

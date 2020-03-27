@@ -234,7 +234,7 @@ abstract class Common implements Storage, ILockingStorage, IWriteStreamStorage {
 		} else {
 			$source = $this->fopen($path1, 'r');
 			$target = $this->fopen($path2, 'w');
-			list(, $result) = \OC_Helper::streamCopy($source, $target);
+			[, $result] = \OC_Helper::streamCopy($source, $target);
 			if (!$result) {
 				\OC::$server->getLogger()->warning("Failed to write data while copying $path1 to $path2");
 			}
@@ -246,7 +246,7 @@ abstract class Common implements Storage, ILockingStorage, IWriteStreamStorage {
 	public function getMimeType($path) {
 		if ($this->is_dir($path)) {
 			return 'httpd/unix-directory';
-		} elseif ($this->file_exists($path)) {
+		} else if ($this->file_exists($path)) {
 			return \OC::$server->getMimeTypeDetector()->detectPath($path);
 		} else {
 			return false;
@@ -296,7 +296,7 @@ abstract class Common implements Storage, ILockingStorage, IWriteStreamStorage {
 	 * @return array
 	 */
 	protected function searchInDir($query, $dir = '') {
-		$files = array();
+		$files = [];
 		$dh = $this->opendir($dir);
 		if (is_resource($dh)) {
 			while (($item = readdir($dh)) !== false) {
@@ -434,7 +434,7 @@ abstract class Common implements Storage, ILockingStorage, IWriteStreamStorage {
 			$path = '/' . $path;
 		}
 
-		$output = array();
+		$output = [];
 		foreach (explode('/', $path) as $chunk) {
 			if ($chunk == '..') {
 				array_pop($output);
@@ -624,7 +624,7 @@ abstract class Common implements Storage, ILockingStorage, IWriteStreamStorage {
 			// are not the same as the original one.Once this is fixed we also
 			// need to adjust the encryption wrapper.
 			$target = $this->fopen($targetInternalPath, 'w');
-			list(, $result) = \OC_Helper::streamCopy($source, $target);
+			[, $result] = \OC_Helper::streamCopy($source, $target);
 			if ($result and $preserveMtime) {
 				$this->touch($targetInternalPath, $sourceStorage->filemtime($sourceInternalPath));
 			}
@@ -717,6 +717,7 @@ abstract class Common implements Storage, ILockingStorage, IWriteStreamStorage {
 		$data['etag'] = $this->getETag($path);
 		$data['storage_mtime'] = $data['mtime'];
 		$data['permissions'] = $permissions;
+		$data['name'] = basename($path);
 
 		return $data;
 	}
@@ -857,9 +858,18 @@ abstract class Common implements Storage, ILockingStorage, IWriteStreamStorage {
 		if (!$target) {
 			return 0;
 		}
-		list($count, $result) = \OC_Helper::streamCopy($stream, $target);
+		[$count, $result] = \OC_Helper::streamCopy($stream, $target);
 		fclose($stream);
 		fclose($target);
 		return $count;
+	}
+
+	public function getDirectoryContent($directory): iterable {
+		$dh = $this->opendir($directory);
+		$basePath = rtrim($directory, '/');
+		while (($file = readdir($dh)) !== false) {
+			$childPath = $basePath . '/' . trim($file, '/');
+			yield $this->getMetaData($childPath);
+		}
 	}
 }

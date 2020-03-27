@@ -118,4 +118,22 @@ interface Storage extends \OCP\Files\Storage {
 	 * @throws \OCP\Lock\LockedException
 	 */
 	public function changeLock($path, $type, ILockingProvider $provider);
+
+	/**
+	 * Get the contents of a directory with metadata
+	 *
+	 * @param string $directory
+	 * @return iterable and iterator or array, containing file metadata
+	 *
+	 * The metadata array will contain the following fields
+	 *
+	 * - name
+	 * - mimetype
+	 * - mtime
+	 * - size
+	 * - etag
+	 * - storage_mtime
+	 * - permissions
+	 */
+	public function getDirectoryContent($directory): iterable;
 }

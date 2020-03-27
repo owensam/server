@@ -461,4 +461,15 @@ class Availability extends Wrapper {
 		$this->getStorageCache()->setAvailability(false, $delay);
 		throw $e;
 	}
+
+
+
+	public function getDirectoryContent($directory): iterable {
+		$this->checkAvailability();
+		try {
+			return parent::getDirectoryContent($directory);
+		} catch (StorageNotAvailableException $e) {
+			$this->setUnavailable($e);
+		}
+	}
 }
